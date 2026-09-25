@@ -23,37 +23,106 @@ def central(x:np.array, t:np.array, ii:int, h_factor=1):
 def richardson(x:np.array, t:np.array, ii:int):
     return (central(x,t,ii,2))+(1/3)*(central(x,t,ii,2)-central(x,t,ii))
 
+def stimate_gravity(method_name: str, acceleration: np.array, g_theoretical=9.81):
+    
+    flight_a_y = np.array(acceleration)[2:-2]
+    g_exp = np.abs(np.mean(flight_a_y))
+    
+    err_pct = relative_error(g_theoretical, g_exp) * 100
+    
+    print("\n" + "="*50)
+    print(f" Gravity stimation ({method_name}) ")
+    print("="*50)
+    print(f"Experimental g : {g_exp:.4f} m/s²")
+    print(f"Relative error : {err_pct:.2f}%")
+    print("="*50 + "\n")
+    
+    return g_exp
+
+
 def absolute_error(true:float, experimental:float):
     return np.abs(true - experimental)
 
-def relative_error(true:float, experimental:float):
-    return absolute_error(true, experimental)/true
+def relative_error(true, experimental):
+    true_arr = np.array(true)
+    exp_arr = np.array(experimental)
+    denominator = np.maximum(np.abs(true_arr), 1e-2)
+    return absolute_error(true_arr, exp_arr) / denominator
 
-def position_plot(time, x_pos, y_pos, folder_name='results'):
+
+def trapezoid_step(time: np.array, velocity: np.array, ii: int):
+    h = time[ii] - time[ii-1]
+    integral = (h/2) * (velocity[ii-1] + velocity[ii])
+    return integral
+
+def reconstruct_trapezoid(time: np.array, velocity: np.array, initial_position: float):
+    position = [initial_position]
+    for ii in range(1, len(time)):
+        integral = trapezoid_step(time, velocity, ii)
+        position.append(position[ii-1] + integral)
+    return position
+
+def simpson_13_step(time: np.array, velocity: np.array, ii: int):
+    h1 = time[ii-1] - time[ii-2]
+    h2 = time[ii] - time[ii-1]
+    if not np.isclose(h1, h2):
+        return None
+    h = h1
+    integral = (h/3) * (velocity[ii-2] + 4*velocity[ii-1] + velocity[ii])
+    return integral
+
+def reconstruct_simpson(time: np.ndarray, velocity: np.ndarray, initial_position: float) -> list:
+    position = [initial_position]
+    for ii in range(1, len(time)):
+        if ii % 2 == 0:
+            integral = simpson_13_step(time, velocity, ii)
+            if integral is not None:
+                position.append(position[ii-2] + integral)
+            else:
+                position.append(position[ii-1] + trapezoid_step(time, velocity, ii))
+        else:
+            position.append(position[ii-1] + trapezoid_step(time, velocity, ii))
+    return position
+
+
+def position_plot(time, x_pos, y_pos, x_real=None, y_real=None, method_name=None, folder_name='results'):
     os.makedirs(folder_name, exist_ok=True) # Create the folder if it doesn't exist
 
+    has_real = (x_real is not None) and (y_real is not None) and (method_name is not None)
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4.5))
 
-    ax1.plot(time, x_pos, color='tab:blue', linewidth=2, label='x(t)')
+    label_x = f'Reconstructed {method_name}' if has_real else 'x(t)'
+    ax1.plot(time, x_pos, color='tab:blue', linewidth=2, label=label_x)
+    if has_real:
+        ax1.plot(time, x_real, color='black', linestyle='--', linewidth=1.5, label='Real')
+        ax1.legend()
     ax1.set_title('Position X vs Time')
     ax1.set_xlabel('Time (t)')
     ax1.set_ylabel('Position X')
     ax1.grid(True)
 
-    ax2.plot(time, y_pos, color='tab:orange', linewidth=2, label='y(t)')
+    label_y = f'Reconstructed {method_name}' if has_real else 'y(t)'
+    ax2.plot(time, y_pos, color='tab:orange', linewidth=2, label=label_y)
+    if has_real:
+        ax2.plot(time, y_real, color='black', linestyle='--', linewidth=1.5, label='Real')
+        ax2.legend()
     ax2.set_title('Position Y vs Time')
     ax2.set_xlabel('Time (t)')
     ax2.set_ylabel('Position Y')
     ax2.grid(True)
 
-    ax3.plot(x_pos, y_pos, color='tab:green', linewidth=2, label='y(x)')
+    label_xy = f'Reconstructed {method_name}' if has_real else 'y(x)'
+    ax3.plot(x_pos, y_pos, color='tab:green', linewidth=2, label=label_xy)
+    if has_real:
+        ax3.plot(x_real, y_real, color='black', linestyle='--', linewidth=1.5, label='Real')
+        ax3.legend()
     ax3.set_title('Position Y vs Position X')
     ax3.set_xlabel('Position X')
     ax3.set_ylabel('Position Y')
     ax3.grid(True)
 
     plt.tight_layout()
-    file_path = os.path.join(folder_name, f"positions.pdf")
+    file_path = os.path.join(folder_name, "positions.pdf")
     plt.savefig(file_path, dpi=300, bbox_inches='tight') # Save the plot as a PDF file
     plt.show()
     plt.close(fig) # Close the plot to free memory
@@ -122,11 +191,12 @@ def rel_error_plot(time, arrays, titles, labels, folder_name='results'):
 def main():
     parser = argparse.ArgumentParser(description='Numerical experiment')
     parser.add_argument('--data_file', type=str, help='Name of the file that has the data.')
-    parser.add_argument('--no_plot', action='store_true', help='If set, the program will not generate plots.')
     args = parser.parse_args()
 
-    data_file = args.data_file
-    no_plot = args.no_plot
+    if args.data_file is not None:
+        data_file = args.data_file
+    else: 
+        data_file = "raw_data"
 
     data = read_data(f"{data_file}.txt")
     #print(data.head())
@@ -193,7 +263,8 @@ def main():
 
     rel_error_V_x = [rel_error_v_x_bw, rel_error_v_x_fw, rel_error_v_x_cn, rel_error_v_x_rc]
     rel_error_V_y = [rel_error_v_y_bw, rel_error_v_y_fw, rel_error_v_y_cn, rel_error_v_y_rc]
-    
+    #print(rel_error_V_x)
+    #print(rel_error_V_y)
 
     #Acceleration
     for ii in range(0, len(data["t"])):
@@ -236,7 +307,8 @@ def main():
 
     rel_error_A_x = [rel_error_a_x_bw, rel_error_a_x_fw, rel_error_a_x_cn, rel_error_a_x_rc]
     rel_error_A_y = [rel_error_a_y_bw, rel_error_a_y_fw, rel_error_a_y_cn, rel_error_a_y_rc]
-
+    #print(rel_error_A_x)
+    #print(rel_error_A_y)
 
     position_plot(data["t"], data["x"], data["y"])
 
@@ -254,16 +326,47 @@ def main():
     rel_errors = [rel_error_V_x, rel_error_V_y, rel_error_A_x, rel_error_A_y]
     rel_error_plot(data["t"], rel_errors, rel_titles, rel_lables)
 
-    print(f"Relative error (Velocity-X backward)={np.mean(rel_error_v_x_bw)}")
-    print(f"Relative error (Velocity-X forward)={np.mean(rel_error_v_x_fw)}")
-    print(f"Relative error (Velocity-X central)={np.mean(rel_error_v_x_cn)}")
-    print(f"Relative error (Velocity-X central-Richardson)={np.mean(rel_error_v_x_rc)}")   
-    print("#"*30) 
-    print(f"Relative error (Acceleration-X backward)={np.mean(rel_error_a_x_bw)}")
-    print(f"Relative error (Acceleration-X forward)={np.mean(rel_error_a_x_fw)}")
-    print(f"Relative error (Acceleration-X central)={np.mean(rel_error_a_x_cn)}")
-    print(f"Relative error (Acceleration-X central-Richardson)={np.mean(rel_error_a_x_rc)}")
+    fout = open("results/results.txt", "w") # Open a file to write the results
+    fout.write(f"--- Mean relative error ---\n")
+    fout.write(f"(Velocity-X backward)={np.mean(rel_error_v_x_bw[1:-1]):.4f}\n")
+    fout.write(f"(Velocity-X forward)={np.mean(rel_error_v_x_fw[1:-1]):.4f}\n")
+    fout.write(f"(Velocity-X central)={np.mean(rel_error_v_x_cn[1:-1]):.4f}\n")
+    fout.write(f"(Velocity-X central-Richardson)={np.mean(rel_error_v_x_rc[1:-1]):.4f}\n")
+    fout.write("#"*30)
+    fout.write("\n")
+    fout.write(f"(Acceleration-X backward)={np.mean(rel_error_a_x_bw[1:-1]):.4f}\n")
+    fout.write(f"(Acceleration-X forward)={np.mean(rel_error_a_x_fw[1:-1]):.4f}\n")
+    fout.write(f"(Acceleration-X central)={np.mean(rel_error_a_x_cn[1:-1]):.4f}\n")
+    fout.write(f"(Acceleration-X central-Richardson)={np.mean(rel_error_a_x_rc[1:-1]):.4f}\n")
 
+    #Integration: position reconstruction
+    x0 = data["x"].iloc[0]
+    y0 = data["y"].iloc[0]
 
+    x_trap = reconstruct_trapezoid(data["t"], data["vx"], x0)
+    y_trap = reconstruct_trapezoid(data["t"], data["vy"], y0)
+    x_simp = reconstruct_simpson(data["t"], data["vx"], x0)
+    y_simp = reconstruct_simpson(data["t"], data["vy"], y0)
+
+    abs_error_x_trap = absolute_error(np.array(data["x"]), np.array(x_trap))
+    abs_error_y_trap = absolute_error(np.array(data["y"]), np.array(y_trap))
+    abs_error_x_simp = absolute_error(np.array(data["x"]), np.array(x_simp))
+    abs_error_y_simp = absolute_error(np.array(data["y"]), np.array(y_simp))
+
+    rel_error_x_trap = relative_error(np.array(data["x"]), np.array(x_trap))
+    rel_error_y_trap = relative_error(np.array(data["y"]), np.array(y_trap))
+    rel_error_x_simp = relative_error(np.array(data["x"]), np.array(x_simp))
+    rel_error_y_simp = relative_error(np.array(data["y"]), np.array(y_simp))
+
+    position_plot(data["t"], x_trap, y_trap, x_real=data["x"], y_real=data["y"], method_name="Trapezoid")
+    position_plot(data["t"], x_simp, y_simp, x_real=data["x"], y_real=data["y"], method_name="Simpson")
+
+    fout.write(f"\n--- Mean relative error of position reconstruction ---\n")
+    fout.write(f"(Position-X Trapezoid)={np.mean(rel_error_x_trap[1:-1]):.4f}\n")
+    fout.write(f"(Position-Y Trapezoid)={np.mean(rel_error_y_trap[1:-1]):.4f}\n")
+    fout.write(f"(Position-X Simpson)={np.mean(rel_error_x_simp[1:-1]):.4f}\n")
+    fout.write(f"(Position-Y Simpson)={np.mean(rel_error_y_simp[1:-1]):.4f}\n")
+
+    fout.close() # Close the file after writing the results
 if __name__ == "__main__":
     main()

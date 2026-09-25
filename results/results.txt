@@ -1,0 +1,16 @@
+--- Mean relative error ---
+(Velocity-X backward)=0.0434
+(Velocity-X forward)=0.0407
+(Velocity-X central)=0.0131
+(Velocity-X central-Richardson)=1.3345
+##############################
+(Acceleration-X backward)=506.2596
+(Acceleration-X forward)=567.5392
+(Acceleration-X central)=403.1330
+(Acceleration-X central-Richardson)=2195.0649
+
+--- Mean relative error of position reconstruction ---
+(Position-X Trapezoid)=0.0947
+(Position-Y Trapezoid)=0.1837
+(Position-X Simpson)=0.0935
+(Position-Y Simpson)=0.1833
