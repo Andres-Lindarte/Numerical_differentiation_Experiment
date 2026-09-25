@@ -1,6 +1,8 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import argparse 
 
 def read_data(file_name:str):
     points = pd.read_csv(f"data/{file_name}", sep='\\s+')
@@ -11,38 +13,91 @@ def backward(x:np.array, t:np.array, ii):
     return (x[ii]-(x[ii-1]))/h
     
 def forward(x:np.array, t:np.array, ii):
-    h = t[ii] - t[ii-1] #Careful with ii
+    h = t[ii] - t[ii+1] #Careful with ii
     return ((x[ii+1])-x[ii])/h
 
-def central(x:np.array, t:np.array, ii):
-    h = t[ii] - t[ii-1] #Careful with ii
+def central(x:np.array, t:np.array, ii:int, h_factor=1):
+    h = (t[ii] - t[ii-1])/h_factor #Careful with ii
     return ((x[ii+1])-x[ii-1])/(2*h)
 
-def richardson():
-    pass
+def richardson(x:np.array, t:np.array, ii:int):
+    return (central(x,t,ii,2))+(1/3)*(central(x,t,ii,2)-central(x,t,ii))
 
-def plot(time, array1, array2, array3, array4):
-    plt.figure(figsize=(10, 6))
+def relative_error(true:float, experimental:float):
+    return np.abs(true - experimental)
 
-    # Trazar cada una de las series
-    plt.plot(time, array1, label="etiquetas[0]", color="#1f77b4", linewidth=2)
-    plt.plot(time, array2, label="etiquetas[1]", color="#ff7f0e", linewidth=2)
-    plt.plot(time, array3, label="etiquetas[2]", color="#2ca02c", linewidth=2)
-    plt.plot(time, array4, label="etiquetas[3]", color="#d62728", linewidth=2)
+def triple_plot(time, x_pos, y_pos, folder_name='results'):
+    os.makedirs(folder_name, exist_ok=True) # Create the folder if it doesn't exist
 
-    # Configuración estéticas de la gráfica
-    plt.title("titulo", fontsize=14, fontweight="bold")
-    plt.xlabel("eje_x", fontsize=12)
-    plt.ylabel("eje_y", fontsize=12)
-    plt.grid(True, linestyle="--", alpha=0.6)
-    plt.legend(loc="best", frameon=True)
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4.5))
+
+    ax1.plot(time, x_pos, color='tab:blue', linewidth=2, label='x(t)')
+    ax1.set_title('Position X vs Time')
+    ax1.set_xlabel('Time (t)')
+    ax1.set_ylabel('Position X')
+    ax1.grid(True)
+
+    ax2.plot(time, y_pos, color='tab:orange', linewidth=2, label='y(t)')
+    ax2.set_title('Position Y vs Time')
+    ax2.set_xlabel('Time (t)')
+    ax2.set_ylabel('Position Y')
+    ax2.grid(True)
+
+    ax3.plot(x_pos, y_pos, color='tab:green', linewidth=2, label='y(x)')
+    ax3.set_title('Position Y vs Position X')
+    ax3.set_xlabel('Position X')
+    ax3.set_ylabel('Position Y')
+    ax3.grid(True)
+
+    plt.tight_layout()
+    file_path = os.path.join(folder_name, f"positions.pdf")
+    plt.savefig(file_path, dpi=300, bbox_inches='tight') # Save the plot as a PDF file
+    plt.show()
+    plt.close(fig) # Close the plot to free memory
+
+
+def grouped_plot(mode, time, arrays_x, arrays_y, labels, folder_name='results'):
+    os.makedirs(folder_name, exist_ok=True)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 4.5))
+
+    plots_config = [
+        (ax1, arrays_x, "x"),
+        (ax2, arrays_y, "y")]
+
+    for ax, array_data, axis in plots_config:
+        for ii, name in enumerate(labels):
+            if ii == 0:
+                lbl = f'Tracker {mode}_{axis}(t)'
+            else:
+                lbl = f'{mode}_{axis}_{name}'
+            
+            ax.plot(time, array_data[ii], label=lbl)
+
+        ax.set_title(f'Componente {axis.upper()}', fontweight='bold')
+        ax.set_xlabel('Tiempo')
+        ax.set_ylabel(f'Posición {axis.upper()}')
+        ax.grid(True)
+        ax.legend() 
+
     plt.tight_layout()
 
+    file_path = os.path.join(folder_name, f"{mode}.pdf")
+    plt.savefig(file_path, dpi=300, bbox_inches='tight')
     plt.show()
-    
+    plt.close(fig)
 
+    
 def main():
-    data = read_data("raw_data.txt")
+    parser = argparse.ArgumentParser(description='Numerical experiment')
+    parser.add_argument('--data_file', type=str, help='Name of the file that has the data.')
+    parser.add_argument('--no_plot', action='store_true', help='If set, the program will not generate plots.')
+    args = parser.parse_args()
+
+    data_file = args.data_file
+    no_plot = args.no_plot
+
+    data = read_data(f"{data_file}.txt")
     #print(data.head())
     #print(len(data["t"]))
 
@@ -54,28 +109,108 @@ def main():
     v_y_bw = []
     v_y_fw = []
     v_y_cn = []
-    v_y_rc = []
-    
+    v_y_rc = []    
+
+    a_x_bw = []
+    a_x_fw = []
+    a_x_cn = []
+    a_x_rc = []
+
+    a_y_bw = []
+    a_y_fw = []
+    a_y_cn = []
+    a_y_rc = []
+
+    #Velocity
     for ii in range(0, 22):
         if ii == 0:
             v_x_bw.append(0)
             v_y_bw.append(0)
-            v_x_fw.append(0)
-            v_y_fw.append(0)
-            #v_x_fw.append(forward(data["x"], data["t"], ii))
-            #v_y_fw.append(forward(data["y"], data["t"], ii))
+            v_x_fw.append(forward(data["x"], data["t"], ii))
+            v_y_fw.append(forward(data["y"], data["t"], ii))
+            v_x_cn.append(0)
+            v_y_cn.append(0)
+            v_x_rc.append(0)
+            v_y_rc.append(0)
         elif ii != 0 and ii != 21 :
             v_x_bw.append(backward(data["x"], data["t"], ii))
             v_y_bw.append(backward(data["y"], data["t"], ii))
             v_x_fw.append(forward(data["x"], data["t"], ii))
             v_y_fw.append(forward(data["y"], data["t"], ii))
+            v_x_cn.append(central(data["x"], data["t"], ii))
+            v_y_cn.append(central(data["y"], data["t"], ii))
+            v_x_rc.append(richardson(data["x"], data["t"], ii))
+            v_y_rc.append(richardson(data["y"], data["t"], ii))
         elif ii == 21:
             v_x_bw.append(backward(data["x"], data["t"], ii))
             v_y_bw.append(backward(data["y"], data["t"], ii))
             v_x_fw.append(0)
             v_y_fw.append(0)
+            v_x_cn.append(0)
+            v_y_cn.append(0)
+            v_x_rc.append(0)
+            v_y_rc.append(0)
+    
+    rel_error_v_x_bw = relative_error(data["vx"], v_x_bw)
+    rel_error_v_y_bw = relative_error(data["vy"], v_y_bw)
+    rel_error_v_x_fw = relative_error(data["vx"], v_x_fw)
+    rel_error_v_y_fw = relative_error(data["vy"], v_y_fw)
+    rel_error_v_x_cn = relative_error(data["vx"], v_x_cn)
+    rel_error_v_y_cn = relative_error(data["vy"], v_y_cn)
+    rel_error_v_x_rc = relative_error(data["vx"], v_x_rc)
+    rel_error_v_y_rc = relative_error(data["vy"], v_y_rc)
 
-    plot(data["t"], v_x_bw, v_x_fw, v_y_bw, v_y_fw)
+    #Acceleration
+    for ii in range(0, 22):
+        if ii == 0:
+            a_x_bw.append(0)
+            a_y_bw.append(0)
+            a_x_fw.append(forward(v_x_fw, data["t"], ii))
+            a_y_fw.append(forward(v_y_fw, data["t"], ii))
+            a_x_cn.append(0)
+            a_y_cn.append(0)
+            a_x_rc.append(0)
+            a_y_rc.append(0)
+        elif ii != 0 and ii != 21 :
+            a_x_bw.append(backward(v_x_bw, data["t"], ii))
+            a_y_bw.append(backward(v_y_bw, data["t"], ii))
+            a_x_fw.append(forward(v_x_fw, data["t"], ii))
+            a_y_fw.append(forward(v_y_fw, data["t"], ii))
+            a_x_cn.append(central(v_x_cn, data["t"], ii))
+            a_y_cn.append(central(v_y_cn, data["t"], ii))
+            a_x_rc.append(richardson(v_x_rc, data["t"], ii))
+            a_y_rc.append(richardson(v_y_rc, data["t"], ii))
+        elif ii == 21:
+            a_x_bw.append(backward(v_x_bw, data["t"], ii))
+            a_y_bw.append(backward(v_y_bw, data["t"], ii))
+            a_x_fw.append(0)
+            a_y_fw.append(0)
+            a_x_cn.append(0)
+            a_y_cn.append(0)
+            a_x_rc.append(0)
+            a_y_rc.append(0)
+
+    rel_error_a_x_bw = relative_error(data["ax"], a_x_bw)
+    rel_error_a_y_bw = relative_error(data["ay"], a_y_bw)
+    rel_error_a_x_fw = relative_error(data["ax"], a_x_fw)
+    rel_error_a_y_fw = relative_error(data["ay"], a_y_fw)
+    rel_error_a_x_cn = relative_error(data["ax"], a_x_cn)
+    rel_error_a_y_cn = relative_error(data["ay"], a_y_cn)
+    rel_error_a_x_rc = relative_error(data["ax"], a_x_rc)
+    rel_error_a_y_rc = relative_error(data["ay"], a_y_rc)
+
+
+    lables = [None, "backward", "forward", "central", "central-Richardson"]
+    triple_plot(data["t"], data["x"], data["y"])
+
+    vel_x = [data["vx"], v_x_bw, v_x_fw, v_x_cn, v_x_rc]
+    vel_y = [data["vy"], v_y_bw, v_y_fw, v_y_cn, v_y_rc]
+    grouped_plot("vel", data["t"], vel_x, vel_y, lables)
+
+    acc_x = [data["vx"], a_x_bw, a_x_fw, a_x_cn, a_x_rc]
+    acc_y = [data["vy"], a_y_bw, a_y_fw, a_y_cn, a_y_rc]
+    grouped_plot("acc", data["t"], acc_x, acc_y, lables)
+
 
 if __name__ == "__main__":
     main()
